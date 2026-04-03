@@ -1,0 +1,149 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  admin
+  manager
+  operator
+}
+
+enum TaskStatus {
+  pending
+  in_progress
+  completed
+  overdue
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+}
+
+enum ActivityAction {
+  created
+  updated
+  status_changed
+  reassigned
+}
+
+enum AgentRunStatus {
+  running
+  completed
+  failed
+}
+
+model Event {
+  id        String   @id @default(uuid()) @db.Uuid
+  type      String
+  taskId    String?   @db.Uuid @map("task_id")
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task      Task?    @relation(fields: [taskId], references: [id])
+  agentRuns AgentRun[]
+
+  @@index([taskId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  email         String   @unique
+  role          UserRole
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  createdTasks  Task[]   @relation("TasksCreatedBy")
+  assignedTasks Task[]   @relation("TasksAssignedTo")
+}
+
+model Task {
+  id                String       @id @default(uuid()) @db.Uuid
+  title             String
+  description       String       @db.Text
+  status            TaskStatus   @default(pending)
+  priority          TaskPriority @default(medium)
+  dueDate           DateTime?    @map("due_date")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  relatedEntityType String?      @map("related_entity_type")
+  relatedEntityId   String?      @db.Uuid @map("related_entity_id")
+  assignedToId      String?      @db.Uuid @map("assigned_to")
+  createdById       String       @db.Uuid @map("created_by")
+  projectId         String?      @db.Uuid @map("project_id")
+
+  assignedTo  User?        @relation("TasksAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy   User         @relation("TasksCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  activityLogs ActivityLog[]
+  agentRuns    AgentRun[]
+  events       Event[]
+
+  @@index([assignedToId])
+  @@index([createdById])
+  @@index([projectId])
+  @@index([status, dueDate], name: "idx_task_status_due")
+  @@index([priority])
+  @@index([relatedEntityType, relatedEntityId], name: "idx_task_related_entity")
+  @@index([assignedToId, status], name: "idx_task_assignee_status")
+}
+
+model Project {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tasks       Task[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @db.Uuid @map("task_id")
+  action    ActivityAction
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+model AgentRun {
+  id         String         @id @default(uuid()) @db.Uuid
+  agentType  String         @map("agent_type")
+  taskId     String?        @db.Uuid @map("task_id")
+  eventType  String?        @map("event_type")
+  status     AgentRunStatus
+  startedAt  DateTime       @default(now()) @map("started_at")
+  finishedAt DateTime?      @map("finished_at")
+  metadata   Json?
+  parentRunId   String?     @db.Uuid @map("parent_run_id")
+  originEventId String?     @db.Uuid @map("origin_event_id")
+
+  task Task? @relation(fields: [taskId], references: [id])
+  parent AgentRun? @relation("RunParent", fields: [parentRunId], references: [id])
+  children AgentRun[] @relation("RunParent")
+  originEvent Event? @relation(fields: [originEventId], references: [id])
+
+  @@index([agentType])
+  @@index([status])
+  @@index([eventType])
+  @@index([taskId])
+  @@index([startedAt])
+  @@index([parentRunId])
+  @@index([originEventId])
+}
